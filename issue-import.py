@@ -6,7 +6,13 @@ pd.set_option('display.max_rows', 500)
 pd.set_option('display.max_columns', 500)
 pd.set_option('display.width', 1000)
 
+global access_status, uploader
+
 article_count = 99999999 # set initial int for incrementing local ids
+input_file = 'subscription_upload.xlsx' # set input file here
+access_status = '2' # access status should eq 1 for open access, 2 for subscription
+uploader = 'ojsadmin' # account associated with submission
+
 
 ########################
 #
@@ -25,9 +31,49 @@ def issue_xml(articles, issue): # accepts articles cluster
     volume = issue_all_data.Volume.values[0].astype(int) # required
     number = issue_all_data.Number.values[0].astype(int) # required
     year = issue_all_data.Year.values[0].astype(int) # required
-    page = issue_all_data.Page.values[0]
 
-    #access status should eq 1 for open access, 2 for subscription
+
+    def generate_issue_metadata_xml(*arg):
+        return f"""<issue xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" published="1" current="1" access_status="{access_status}">
+    <id type="internal" advice="ignore">74</id>
+    <description locale="en_US">&lt;p&gt;JALCA {volume}({number})</description>
+    <issue_identification>
+      <volume>{volume}</volume>
+      <number>{number}</number>
+      <year>{year}</year>
+      <title locale="en_US">Journal of the American Leather Chemists Association</title>
+    </issue_identification>
+    <date_published>{year}-01-01</date_published>
+    <last_modified>2020-02-11</last_modified>
+    <sections>
+      <section ref="jt" seq="3" editor_restricted="0" meta_indexed="1" meta_reviewed="0" abstracts_not_required="0" hide_title="0" hide_author="0" abstract_word_count="0">
+        <id type="internal" advice="ignore">87</id>
+        <abbrev locale="en_US">jt</abbrev>
+        <policy locale="en_US">&lt;p&gt;Complete text of journal&lt;/p&gt;</policy>
+        <title locale="en_US">Journal text</title>
+      </section>
+      <section ref="FM" seq="2" editor_restricted="0" meta_indexed="0" meta_reviewed="0" abstracts_not_required="1" hide_title="0" hide_author="0" abstract_word_count="0">
+        <id type="internal" advice="ignore">86</id>
+        <abbrev locale="en_US">FM</abbrev>
+        <policy locale="en_US">&lt;p&gt;Journal cover, advertisements, and other material&lt;/p&gt;</policy>
+        <title locale="en_US">Front Matter</title>
+      </section>
+      <section ref="ART" seq="1" editor_restricted="0" meta_indexed="1" meta_reviewed="1" abstracts_not_required="0" hide_title="0" hide_author="0" abstract_word_count="0">
+        <id type="internal" advice="ignore">85</id>
+        <abbrev locale="en_US">ART</abbrev>
+        <title locale="en_US">Articles</title>
+      </section>
+      <section ref="ll" seq="4" editor_restricted="0" meta_indexed="1" meta_reviewed="1" abstracts_not_required="0" hide_title="0" hide_author="0" abstract_word_count="0">
+        <id type="internal" advice="ignore">88</id>
+        <abbrev locale="en_US">ll</abbrev>
+        <policy locale="en_US">&lt;p&gt;Author Biographies&lt;/p&gt;</policy>
+        <title locale="en_US">Lifelines</title>
+      </section>
+    </sections>
+    <issue_galleys xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://pkp.sfu.ca native.xsd"/>
+        """
+    issue_xml = generate_issue_metadata_xml(issue_id,volume,year,number)
+    return issue_xml
 
 def parse_authors(authors):
     authors = list(filter(None, re.split(', |and ', authors)))
@@ -51,6 +97,11 @@ def article_counter():
 
 def article_xml(article):
 
+    def generate_abstract(article):
+        if pd.isna(article.Abstract):
+            return ''
+        return f"""<abstract locale="en_US">{article.Abstract}</abstract>"""
+
     def generate_authors_xml(article):
         if pd.isna(article.Author):
             return ''
@@ -63,10 +114,10 @@ def article_xml(article):
     def generate_file_submission_xml(filename):
         if pd.isna(filename): # return nothing if filename is blank
             return ''
-        return f"""<submission_file xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" stage="proof" id="{number}" xsi:schemaLocation="http://pkp.sfu.ca native.xsd">
-          <revision number="1" genre="Article Text" filename="{filename}.pdf" viewable="false" date_uploaded="2020-01-27" date_modified="2020-01-27" filesize="596590" filetype="application/pdf" user_group_ref="Journal manager" uploader="ojsadmin">
+        return f"""<submission_file xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" stage="proof" id="{article_count}" xsi:schemaLocation="http://pkp.sfu.ca native.xsd">
+          <revision number="1" genre="Article Text" filename="{filename}.pdf" viewable="false" date_uploaded="2020-01-27" date_modified="2020-01-27" filesize="596590" filetype="application/pdf" user_group_ref="Journal manager" uploader="{uploader}">
             <name locale="en_US">ojsadmin, Journal manager, {filename}.pdf</name>
-            <href src="/tmp/leather/{filename}.pdf"></href>
+            <href src="/tmp/files/{filename}.pdf"></href>
           </revision>
         </submission_file>
             <article_galley xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" approved="false" xsi:schemaLocation="http://pkp.sfu.ca native.xsd">
@@ -78,10 +129,9 @@ def article_xml(article):
 
     def generate_article_metadata_xml(*arg):
         return f"""
-      <article xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" locale="en_US" date_submitted="2020-01-27" stage="production" date_published="2020-01-27" section_ref="{section_ref}" seq="1" access_status="1">
-        <title locale="en_US">Identification and Characterization of Potential Biocide-Resistant Fungal Strains from Infested Leathers</title>
-        <subtitle locale="en_US">{title}</subtitle>
-        <abstract locale="en_US">{abstract}</abstract>
+      <article xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" locale="en_US" date_submitted="{year}-01-01" stage="production" date_published="{year}-01-01" section_ref="{section_ref}" seq="1" access_status="{access_status}">
+        <title locale="en_US">{title}</title>
+        {abstract}
         <copyrightHolder locale="en_US">Journal of the American Leather Chemists Association</copyrightHolder>
         <copyrightYear>{year}</copyrightYear>
         {authors_xml}
@@ -91,17 +141,18 @@ def article_xml(article):
     article_counter() #increment count for internal id
 
     number = generate_submission_number(article)# required
-    section_ref = 'ART' # need section e.g. ART for articles, etc
+    section_ref = article.Section # need section e.g. ART for articles, etc
     volume = int(article.Volume) # required
     year = int(article.Year) # required
     #page = int(article.Page)
     title = article.Title # required
-    abstract = article.Abstract
+    abstract = generate_abstract(article)
     authors_xml = generate_authors_xml(article)
     submission_xml = generate_file_submission_xml(article.Filename)
     xml = generate_article_metadata_xml(article_count,section_ref,volume,year,title,abstract,authors_xml,submission_xml)
-    print(xml)
+    print(section_ref)
     return xml
+    
 
 ######################
 #
@@ -113,25 +164,33 @@ def article_xml(article):
 
 
 # ingest csv
-df = pd.read_csv('article_upload_test.csv', sep=',')
+df = pd.read_excel(input_file, sep=',')
+
+# open file for output
+out = open('out.xml', 'w')
 
 # get unique list of issue numbers, exclude Nan
-uniq_issues = set((df['Volume'].dropna().astype(str) + df['Number'].dropna().astype(str)))
+uniq_issues = sorted(set((df['Volume'].dropna().astype(str) + df['Number'].dropna().astype(str))))
 
+out.write(f"""<?xml version="1.0"?>
+<issues xmlns="http://pkp.sfu.ca" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://pkp.sfu.ca native.xsd">""")
+
+print(uniq_issues)
 for issue in uniq_issues:
-
     issue_all_data = df.loc[(df['Volume'].astype(str)+df['Number'].astype(str)) == issue][2:3]
-
     # get value from column
     # issue_all_data['Volume'].values[0].astype(int)
 
     articles = df.loc[(df['Volume'].astype(str)+df['Number'].astype(str)) == issue]
 
     # process issue level xml
-    issue_xml(articles, issue) # write to file
-    
+    #out.write(issue_xml(articles, issue)) # write to file
+    out.write(issue_xml(articles, issue)) # write to file
     # process article level xml
+    out.write(f"""<articles xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://pkp.sfu.ca native.xsd">""")
     for index, article in articles.iterrows():
-        article_xml(article) # write to file
+        out.write(article_xml(article))  #write to file
+    out.write("</articles></issue>")
+out.write("</issues>")
 
-
+out.close()
