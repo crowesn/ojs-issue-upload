@@ -2,6 +2,8 @@
 
 import pandas as pd
 import re
+import html
+
 pd.set_option('display.max_rows', 500)
 pd.set_option('display.max_columns', 500)
 pd.set_option('display.width', 1000)
@@ -9,8 +11,8 @@ pd.set_option('display.width', 1000)
 global access_status, uploader
 
 article_count = 99999999 # set initial int for incrementing local ids
-input_file = 'subscription_upload.xlsx' # set input file here
-access_status = '2' # access status should eq 1 for open access, 2 for subscription
+input_file = 'open_access_upload.xlsx' # set input file here
+access_status = '1' # access status should eq 1 for open access, 2 for subscription
 uploader = 'ojsadmin' # account associated with submission
 
 
@@ -29,9 +31,9 @@ def issue_xml(articles, issue): # accepts articles cluster
     # issue_all_data['Volume'].values[0].astype(int)
     issue_id = issue.replace('.', '') #required
     volume = issue_all_data.Volume.values[0].astype(int) # required
-    number = issue_all_data.Number.values[0].astype(int) # required
+    number = "{:02d}".format(issue_all_data.Number.values[0].astype(int)) # required
+    issue_all_data.Number.values[0].astype(int) # required
     year = issue_all_data.Year.values[0].astype(int) # required
-
 
     def generate_issue_metadata_xml(*arg):
         return f"""<issue xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" published="1" current="1" access_status="{access_status}">
@@ -43,8 +45,8 @@ def issue_xml(articles, issue): # accepts articles cluster
       <year>{year}</year>
       <title locale="en_US">Journal of the American Leather Chemists Association</title>
     </issue_identification>
-    <date_published>{year}-01-01</date_published>
-    <last_modified>2020-02-11</last_modified>
+    <date_published>{year}-{number}-01</date_published>
+    <last_modified>2020-03-09</last_modified>
     <sections>
       <section ref="jt" seq="3" editor_restricted="0" meta_indexed="1" meta_reviewed="0" abstracts_not_required="0" hide_title="0" hide_author="0" abstract_word_count="0">
         <id type="internal" advice="ignore">87</id>
@@ -100,7 +102,7 @@ def article_xml(article):
     def generate_abstract(article):
         if pd.isna(article.Abstract):
             return ''
-        return f"""<abstract locale="en_US">{article.Abstract}</abstract>"""
+        return html.escape(html.unescape(f"""<abstract locale="en_US">{article.Abstract}</abstract>"""))
 
     def generate_authors_xml(article):
         if pd.isna(article.Author):
@@ -129,28 +131,34 @@ def article_xml(article):
 
     def generate_article_metadata_xml(*arg):
         return f"""
-      <article xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" locale="en_US" date_submitted="{year}-01-01" stage="production" date_published="{year}-01-01" section_ref="{section_ref}" seq="1" access_status="{access_status}">
+      <article xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" locale="en_US" date_submitted="{year}-01-01" stage="production" date_published="{year}-{month}-01" section_ref="{section_ref}" seq="1" access_status="{access_status}">
         <title locale="en_US">{title}</title>
         {abstract}
         <copyrightHolder locale="en_US">Journal of the American Leather Chemists Association</copyrightHolder>
         <copyrightYear>{year}</copyrightYear>
         {authors_xml}
         {submission_xml}
+        {pages}
       </article>"""
+
+    def get_pages(pages):
+        if pd.isna(pages):
+            return ''
+        return f"""<pages>{pages}</pages>"""
 
     article_counter() #increment count for internal id
 
+    month = "{:02d}".format(article.Number) # required
     number = generate_submission_number(article)# required
     section_ref = article.Section # need section e.g. ART for articles, etc
     volume = int(article.Volume) # required
     year = int(article.Year) # required
-    #page = int(article.Page)
+    pages = get_pages(article.Page)
     title = article.Title # required
     abstract = generate_abstract(article)
     authors_xml = generate_authors_xml(article)
     submission_xml = generate_file_submission_xml(article.Filename)
-    xml = generate_article_metadata_xml(article_count,section_ref,volume,year,title,abstract,authors_xml,submission_xml)
-    print(section_ref)
+    xml = generate_article_metadata_xml(pages,article_count,month,section_ref,volume,year,title,abstract,authors_xml,submission_xml)
     return xml
     
 
@@ -167,7 +175,7 @@ def article_xml(article):
 df = pd.read_excel(input_file, sep=',')
 
 # open file for output
-out = open('out.xml', 'w')
+out = open('out-open.xml', 'w')
 
 # get unique list of issue numbers, exclude Nan
 uniq_issues = sorted(set((df['Volume'].dropna().astype(str) + df['Number'].dropna().astype(str))))
@@ -175,7 +183,6 @@ uniq_issues = sorted(set((df['Volume'].dropna().astype(str) + df['Number'].dropn
 out.write(f"""<?xml version="1.0"?>
 <issues xmlns="http://pkp.sfu.ca" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://pkp.sfu.ca native.xsd">""")
 
-print(uniq_issues)
 for issue in uniq_issues:
     issue_all_data = df.loc[(df['Volume'].astype(str)+df['Number'].astype(str)) == issue][2:3]
     # get value from column
